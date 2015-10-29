@@ -80,7 +80,7 @@ package com.as3xls.xls {
 		 * @param value
 		 * 
 		 */
-		public function setCell(row:uint, col:uint, value:*):void {
+		public function setCell(row:uint, col:uint, value:*,anote:String=null):void {
 			if ((row+1) > _rows || (col+1) > _cols) {
 				resize(row+1, col+1);
 			}
@@ -89,6 +89,9 @@ package com.as3xls.xls {
 				(_values[row][col] as Cell).formula = value;
 			} else {
 				(_values[row][col] as Cell).value = value;
+			}
+			if(anote){
+				(_values[row][col] as Cell).note = anote;
 			}
 		}
 		

@@ -184,8 +184,8 @@ package com.as3xls.xls {
 		 * @return A ByteArray containing the saved sheet in BIFF2 form
 		 * 
 		 */
-		public function saveToByteArray(charset:String="UTF8"):ByteArray {
-			var s:Sheet = _sheets[0] as Sheet;
+		public function saveToByteArray(sheet:int = 0,charset:String ="GBK"):ByteArray {
+			var s:Sheet = _sheets[sheet] as Sheet;
 			
 			var br:BIFFWriter = new BIFFWriter();
 			
@@ -229,6 +229,7 @@ package com.as3xls.xls {
 			
 			for(var r:uint = 0; r < s.rows; r++) {
 				for(var c:uint = 0; c < s.cols; c++) {
+					var hasNote:Boolean = Boolean(s.getCell(r, c).note);
 					var value:* = s.getCell(r, c).value;
 					var cell:Record = new Record(1);
 					cell.data.writeShort(r);
@@ -241,7 +242,7 @@ package com.as3xls.xls {
 						cell.data.writeByte(15);
 						cell.data.writeByte(0);
 						cell.data.writeDouble(dateNum);
-					} else if(isNaN(Number(value)) == false && String(value) != "") {
+					} else if(isNaN(Number(value)) == false && String(value) != ""&&String(value).length<=11) {
 						cell.type = Type.NUMBER;
 						cell.data.writeByte(0);
 						cell.data.writeByte(0);
@@ -252,16 +253,32 @@ package com.as3xls.xls {
 						cell.data.writeByte(0);
 						cell.data.writeByte(0);
 						cell.data.writeByte(0);
-						var len:uint = String(value).length;
-						cell.data.writeByte(len);
-                        cell.data.writeMultiByte(value, charset);
+						var ba:ByteArray = new ByteArray();
+						ba.writeMultiByte(String(value),charset);
+						cell.data.writeByte(ba.length);
+						cell.data.writeMultiByte(String(value),charset);
+//						var len:uint = String(value).length;
+//						cell.data.writeByte(len);
+//						cell.data.writeUTFBytes(value);
 					} else {
 						cell.type = Type.BLANK;
 						cell.data.writeByte(0);
 						cell.data.writeByte(0);
 						cell.data.writeByte(0);
 					}
-					
+					if(hasNote){
+						cell.data.writeByte(0xEC);
+						cell.data.writeByte(0);
+						cell.data.writeMultiByte(s.getCell(r, c).note,charsetNow);
+//						cell.type = Type.NOTE;
+//						cell.data.writeByte(0);
+//						cell.data.writeByte(0);
+//						cell.data.writeByte(0);
+//						var ba:ByteArray = new ByteArray();
+//						ba.writeMultiByte(String(value),charset);
+//						cell.data.writeByte(ba.length);
+//						cell.data.writeMultiByte(String(value),charset);
+					}
 					br.writeTag(cell);
 				}
 			}
@@ -277,14 +294,15 @@ package com.as3xls.xls {
 		
 		
 		
-		
+		public static var charsetNow:String = "GBK";
 		/**
 		 * Loads the sheets from a ByteArray containing an Excel file. If the ByteArray contains a CDF file the Workbook stream
 		 * will be extracted and loaded.
 		 * 
 		 * @see com.as3xls.cdf.CDFReader
 		 */
-		public function loadFromByteArray(xls:ByteArray):void {
+		public function loadFromByteArray(xls:ByteArray,fileName:String=null,charset:String ="GBK"):void {
+			charsetNow = charset;
 			// Newer workbooks are actually cdf files which must be extracted
 			if(CDFReader.isCDFFile(xls)) {
 				var cdf:CDFReader = new CDFReader(xls);
@@ -309,7 +327,7 @@ package com.as3xls.xls {
 					if (version==BIFFVersion.BIFF2) {		
 						if (!currentSheet){
 							currentSheet = new Sheet();
-							currentSheet.name = 'test';
+							currentSheet.name = fileName;
 						} 
 					}
 					(handlers[r.type] as Function).call(this, r, currentSheet);
@@ -370,11 +388,13 @@ package com.as3xls.xls {
 				s.setCell(row, col, value);
 			} else {
 				s.setCell(row, col, value);
-				var fmt:String = s.formats[s.xformats[indexToXF].format];
-				if(fmt == null || fmt.length == 0) {
-					fmt = Formatter.builtInFormats[s.xformats[indexToXF].format];
+				if(s.formats.length>0){
+					var fmt:String = s.formats[s.xformats[indexToXF].format];
+					if(fmt == null || fmt.length == 0) {
+						fmt = Formatter.builtInFormats[s.xformats[indexToXF].format];
+					}
+					s.getCell(row, col).format = fmt;
 				}
-				s.getCell(row, col).format = fmt; 	
 			}
 			
 		}
@@ -399,7 +419,8 @@ package com.as3xls.xls {
 				len = r.data.readUnsignedShort();
 			}
 			
-			var value:String = r.data.readUTFBytes(len);
+//			var value:String = r.data.readUTFBytes(len);
+			var value:String = r.data.readMultiByte(len,charsetNow);
 			
 			s.setCell(row, col, value);
 			
@@ -432,6 +453,8 @@ package com.as3xls.xls {
 			var value:Number = readRK(r, s);
 			
 			s.setCell(row, col, value);
+			
+			if(s.xformats.length==0)return;
 			
 			var fmt:String = s.formats[s.xformats[indexToXF].format];
 			if(fmt == null || fmt.length == 0) {
@@ -477,12 +500,14 @@ package com.as3xls.xls {
 			while(r.data.bytesAvailable > 2) {
 				var indexToXF:uint = r.data.readUnsignedShort();
 				var value:Number = readRK(r, s);
-				var fmt:String = s.formats[s.xformats[indexToXF].format]; 
-				if(fmt == null || fmt.length == 0) {
-					fmt = Formatter.builtInFormats[s.xformats[indexToXF].format];
+				if(s.formats.length){
+					var fmt:String = s.formats[s.xformats[indexToXF].format]; 
+					if(fmt == null || fmt.length == 0) {
+						fmt = Formatter.builtInFormats[s.xformats[indexToXF].format];
+					}
+					s.getCell(row, col).format = fmt;
 				}
 				s.setCell(row, col, value);
-				s.getCell(row, col).format = fmt;
 				
 				col++;
 			}
@@ -504,7 +529,7 @@ package com.as3xls.xls {
 				b[6] = 0;
 				b[5] = 0;
 				b[4] = 0;
-				b[3] = r.data.readUnsignedByte();
+				b[3] = r.data.readUnsignedByte() & 0xFC; // Masking of bits 30 and 31 missing in original implementation
 				b[2] = r.data.readUnsignedByte();
 				b[1] = r.data.readUnsignedByte();
 				b[0] = r.data.readUnsignedByte();
@@ -512,7 +537,7 @@ package com.as3xls.xls {
 			}
 			
 			if(div100) {
-				value = Math.round(value) / 100;
+				value = value / 100;
 			}
 			
 			return value;
@@ -710,7 +735,8 @@ package com.as3xls.xls {
 			var lastRow:uint = r.length == 14 ? r.data.readUnsignedInt() : r.data.readUnsignedShort();
 			var firstCol:uint = r.data.readUnsignedShort();
 			var lastCol:uint = r.data.readUnsignedShort();
-			if (s) {
+			
+			if(s){
 				s.resize(lastRow, lastCol);
 			}
 		}
@@ -729,13 +755,13 @@ package com.as3xls.xls {
 				var len:uint = r.data.readUnsignedByte();
 				name = r.data.readUTFBytes(len);
 			}
-			var l_currentSheet:Sheet;
-			l_currentSheet = new Sheet();
-			l_currentSheet.dateMode = dateMode;
-			l_currentSheet.name = name;
-			l_currentSheet.formats = currentSheet.formats.concat(globalFormats);
-			l_currentSheet.xformats = currentSheet.xformats.concat(globalXFormats);
-			_sheets.addItem(l_currentSheet);
+			var currentSheet:Sheet;
+			currentSheet = new Sheet();
+			currentSheet.dateMode = dateMode;
+			currentSheet.name = name;
+			currentSheet.formats = currentSheet.formats.concat(globalFormats);
+			currentSheet.xformats = currentSheet.xformats.concat(globalXFormats);
+			_sheets.addItem(currentSheet);
 		}
 		
 		// Formatting
@@ -1191,6 +1217,7 @@ package com.as3xls.xls {
 			switch(lastRecordType) {
 				case 0xEC:
 					var flags:uint = r.data.readUnsignedByte();
+					//var note:String = r.data.readMultiByte(r.data.bytesAvailable,charsetNow);
 					var note:String = r.data.readUTFBytes(r.data.bytesAvailable);
 					notes.push(note);
 					break;
